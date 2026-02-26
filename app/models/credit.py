@@ -66,7 +66,7 @@ class CreditTransaction(Base, TimestampMixin):
     )
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     type: Mapped[TransactionType] = mapped_column(
-        SQLEnum(TransactionType, native_enum=False),
+        SQLEnum(TransactionType, native_enum=False, create_type=False),
         nullable=False
     )
     job_id: Mapped[str] = mapped_column(String(36), nullable=True)

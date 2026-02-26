@@ -8,6 +8,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.config import settings
 from app.routes.auth import router as auth_router
 from app.routes.api import router as api_router
+from app.routes.jobs import router as jobs_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -27,6 +28,9 @@ app.include_router(auth_router)
 
 # Include API routes
 app.include_router(api_router)
+
+# Include job routes
+app.include_router(jobs_router)
 
 
 @app.get("/")

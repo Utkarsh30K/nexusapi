@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://nexususer:nexuspass@localhost:5432/nexusapi"
     DEBUG: bool = True
 
+    # Redis
+    REDIS_URL: str = "redis://localhost:6379"
+
     # App
     APP_NAME: str = "NexusAPI"
     APP_VERSION: str = "1.0.0"
@@ -32,6 +35,9 @@ class Settings(BaseSettings):
     # OAuth (fill in when ready)
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
+
+    # Gemini AI
+    GEMINI_API_KEY: Optional[str] = None
 
     # Frontend
     FRONTEND_URL: str = "http://localhost:3000"

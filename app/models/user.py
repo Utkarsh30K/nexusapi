@@ -38,7 +38,7 @@ class User(Base, TimestampMixin):
         index=True
     )
     role: Mapped[UserRole] = mapped_column(
-        SQLEnum(UserRole, native_enum=False),
+        SQLEnum(UserRole, native_enum=False, create_type=False),
         nullable=False,
         default=UserRole.MEMBER
     )
