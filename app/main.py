@@ -9,6 +9,9 @@ from app.config import settings
 from app.routes.auth import router as auth_router
 from app.routes.api import router as api_router
 from app.routes.jobs import router as jobs_router
+from app.routes.jobs_v1 import router as jobs_v1_router
+from app.routes.jobs_v2 import router as jobs_v2_router
+from app.routes.webhooks import router as webhooks_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -31,6 +34,15 @@ app.include_router(api_router)
 
 # Include job routes
 app.include_router(jobs_router)
+
+# Include v1 job routes (original API)
+app.include_router(jobs_v1_router)
+
+# Include v2 job routes (new API with extra fields)
+app.include_router(jobs_v2_router)
+
+# Include webhook routes
+app.include_router(webhooks_router)
 
 
 @app.get("/")

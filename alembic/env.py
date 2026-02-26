@@ -16,6 +16,8 @@ from app.models.base import Base
 from app.models.organisation import Organisation
 from app.models.user import User
 from app.models.credit import OrgCredit, CreditTransaction
+from app.models.job import Job
+from app.models.webhook import WebhookDelivery
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

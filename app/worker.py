@@ -5,9 +5,11 @@ Processes jobs asynchronously using Redis queue.
 """
 import json
 import asyncio
+import hashlib
 from datetime import datetime
 
 import google.generativeai as genai
+import redis.asyncio as redis
 from arq import ArqRedis, Retry
 from arq.connections import RedisSettings
 
@@ -17,7 +19,45 @@ from app.models.job import Job, JobStatus
 from app.models.organisation import Organisation
 from app.models.user import User
 from app.models.credit import OrgCredit, CreditTransaction, TransactionType
+from app.services.webhook_service import trigger_job_webhook
 from sqlalchemy import select
+
+
+# Redis cache client
+_cache_client = None
+
+async def get_cache_client():
+    """Get or create Redis cache client."""
+    global _cache_client
+    if _cache_client is None:
+        _cache_client = redis.from_url(settings.REDIS_URL)
+    return _cache_client
+
+
+def generate_cache_key(job_type: str, text: str) -> str:
+    """Generate SHA-256 cache key from job type and text."""
+    data = f"{job_type}:{text}"
+    return f"cache:gemini:{hashlib.sha256(data.encode()).hexdigest()}"
+
+
+async def get_from_cache(key: str) -> str | None:
+    """Get value from cache. Returns None if cache is unavailable."""
+    try:
+        client = await get_cache_client()
+        return await client.get(key)
+    except Exception as e:
+        print(f"Cache get failed: {e}")
+        return None  # Cache down - not an outage
+
+
+async def set_to_cache(key: str, value: str, ttl: int = 3600):
+    """Set value in cache with TTL. Fails silently if cache unavailable."""
+    try:
+        client = await get_cache_client()
+        await client.setex(key, ttl, value)
+    except Exception as e:
+        print(f"Cache set failed: {e}")
+        pass  # Cache down - not an outage
 
 
 # Configure Gemini
@@ -53,14 +93,41 @@ async def process_summarize_job(ctx: dict, job_id: str) -> dict:
             if not text:
                 raise ValueError("No text provided")
             
+            # Task 3-1: Check cache first
+            cache_key = generate_cache_key("summarize", text)
+            cached_result = await get_from_cache(cache_key)
+            
+            if cached_result:
+                print(f"Cache HIT for job {job_id}")
+                summary = cached_result.decode() if isinstance(cached_result, bytes) else cached_result
+                job.status = JobStatus.COMPLETED
+                job.output_data = json.dumps({"summary": summary, "cached": True})
+                job.completed_at = datetime.utcnow()
+                await db.commit()
+                return {"status": "completed", "summary": summary, "cached": True}
+            
+            print(f"Cache MISS for job {job_id} - calling Gemini")
+            
+            # Cache miss - call Gemini
             model = genai.GenerativeModel("gemini-2.5-flash")
             response = model.generate_content(f"Summarize this: {text}")
             summary = response.text
+            
+            # Store in cache for 1 hour (3600 seconds)
+            await set_to_cache(cache_key, summary, ttl=3600)
+            print(f"Cached result for 1 hour")
             
             job.status = JobStatus.COMPLETED
             job.output_data = json.dumps({"summary": summary})
             job.completed_at = datetime.utcnow()
             await db.commit()
+            
+            # Task 3-4: Trigger webhook on completion
+            await trigger_job_webhook(job.org_id, job.id, {
+                "job_id": job.id,
+                "status": "completed",
+                "summary": summary
+            })
             
             return {"status": "completed", "summary": summary}
         except Exception as e:
@@ -141,6 +208,13 @@ async def process_analyze_job(ctx: dict, job_id: str) -> dict:
             job.completed_at = datetime.utcnow()
             await db.commit()
             
+            # Task 3-4: Trigger webhook on completion
+            await trigger_job_webhook(job.org_id, job.id, {
+                "job_id": job.id,
+                "status": "completed",
+                "analysis": analysis
+            })
+            
             return {"status": "completed", "analysis": analysis}
         except Exception as e:
             error_message = str(e)
@@ -150,6 +224,13 @@ async def process_analyze_job(ctx: dict, job_id: str) -> dict:
                 job.status = JobStatus.FAILED
                 job.error_message = error_message
                 job.completed_at = datetime.utcnow()
+                
+                # Task 3-4: Trigger webhook on failure
+                await trigger_job_webhook(job.org_id, job.id, {
+                    "job_id": job.id,
+                    "status": "failed",
+                    "error": error_message
+                })
             else:
                 job.status = JobStatus.PENDING
                 job.error_message = error_message

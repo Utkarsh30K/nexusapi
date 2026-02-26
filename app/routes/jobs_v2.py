@@ -1,5 +1,5 @@
 """
-Job API routes.
+Job API routes v2 - New API with additional response fields
 
 Provides endpoints for creating and managing background jobs.
 """
@@ -19,7 +19,7 @@ from app.worker import enqueue_job
 import json
 
 
-router = APIRouter(prefix="/api/jobs", tags=["jobs"])
+router = APIRouter(prefix="/api/v2/jobs", tags=["jobs_v2"])
 
 
 # Pydantic models for request/response
@@ -89,21 +89,20 @@ async def create_summarize_job(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Create a new summarize job.
+    Create a new summarize job (v2).
     
     Returns immediately with job_id (under 100ms).
     The actual processing happens in the background.
+    
+    v2 adds extra fields in response: credits_used, model
     """
-    # Task 3-2: Check rate limit (100 requests per 15 minutes per org)
+    # Check rate limit
     await check_rate_limit(request, current_user.organisation_id)
     
-    # Map job_type string to JobType enum
     job_type_enum = JobType.SUMMARIZE if request.job_type == "summarize" else JobType.ANALYZE
-    
-    # Calculate credits based on job type
     credits_required = 10 if request.job_type == "summarize" else 25
     
-    # Check and deduct credits (Task 4: Credit Deduction Safety)
+    # Check and deduct credits
     credit_service = CreditService(db)
     balance = await credit_service.get_balance(current_user.organisation_id)
     
@@ -113,11 +112,10 @@ async def create_summarize_job(
             detail=f"Insufficient credits. Balance: {balance}, Required: {credits_required}"
         )
     
-    # Deduct credits
     success = await credit_service.deduct_credits(
         org_id=current_user.organisation_id,
         amount=credits_required,
-        job_id=None,  # Will be set after job creation
+        job_id=None,
         description=f"Job creation: {request.job_type}"
     )
     
@@ -127,7 +125,6 @@ async def create_summarize_job(
             detail="Failed to deduct credits"
         )
     
-    # Create job in database
     job_service = JobService(db)
     job = await job_service.create_job(
         org_id=current_user.organisation_id,
@@ -136,19 +133,18 @@ async def create_summarize_job(
         input_data=json.dumps({"text": request.text, "credits": credits_required})
     )
     
-    # Update transaction with job_id
-    # (In a real system, we'd update the transaction record)
-    
-    # Enqueue job for background processing
     try:
         await enqueue_job(request.job_type, job.id)
     except Exception as e:
         print(f"Failed to enqueue job: {e}")
     
+    # v2 response with extra fields
     return {
         "job_id": job.id,
         "status": "pending",
-        "message": f"Job created successfully. Credits deducted: {credits_required}"
+        "message": f"Job created successfully. Credits deducted: {credits_required}",
+        "credits_used": credits_required,
+        "model": "gemini-2.5-flash"
     }
 
 
@@ -158,16 +154,11 @@ async def create_analyze_job(
     current_user: User = Depends(get_user_from_token),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Create a new analyze job.
-    """
-    # Task 3-2: Check rate limit (100 requests per 15 minutes per org)
+    """Create a new analyze job (v2)."""
     await check_rate_limit(request, current_user.organisation_id)
     
-    job_type_enum = JobType.ANALYZE
     credits_required = 25
     
-    # Check and deduct credits (Task 4: Credit Deduction Safety)
     credit_service = CreditService(db)
     balance = await credit_service.get_balance(current_user.organisation_id)
     
@@ -177,12 +168,11 @@ async def create_analyze_job(
             detail=f"Insufficient credits. Balance: {balance}, Required: {credits_required}"
         )
     
-    # Deduct credits
     success = await credit_service.deduct_credits(
         org_id=current_user.organisation_id,
         amount=credits_required,
         job_id=None,
-        description=f"Job creation: analyze"
+        description="Job creation: analyze"
     )
     
     if not success:
@@ -195,7 +185,7 @@ async def create_analyze_job(
     job = await job_service.create_job(
         org_id=current_user.organisation_id,
         user_id=current_user.id,
-        job_type=job_type_enum,
+        job_type=JobType.ANALYZE,
         input_data=json.dumps({"text": request.text, "credits": credits_required})
     )
     
@@ -204,10 +194,13 @@ async def create_analyze_job(
     except Exception as e:
         print(f"Failed to enqueue job: {e}")
     
+    # v2 response with extra fields
     return {
         "job_id": job.id,
         "status": "pending",
-        "message": f"Job created successfully. Credits deducted: {credits_required}"
+        "message": f"Job created successfully. Credits deducted: {credits_required}",
+        "credits_used": credits_required,
+        "model": "gemini-2.5-flash"
     }
 
 
@@ -217,10 +210,7 @@ async def get_job(
     current_user: User = Depends(get_user_from_token),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Get job status and result by ID.
-    """
-    # Task 3-2: Check rate limit
+    """Get job status and result by ID (v2)."""
     await check_rate_limit(None, current_user.organisation_id)
     
     job_service = JobService(db)
@@ -240,71 +230,10 @@ async def list_jobs(
     current_user: User = Depends(get_user_from_token),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    List all jobs for the user's organisation.
-    """
-    # Task 3-2: Check rate limit
+    """List all jobs for the user's organisation (v2)."""
     await check_rate_limit(None, current_user.organisation_id)
     
     job_service = JobService(db)
     jobs = await job_service.get_jobs_by_org(current_user.organisation_id)
     
     return [job_to_response(job) for job in jobs]
-
-
-# Test endpoint for retry logic demo
-@router.post("/test-fail", response_model=dict)
-async def create_failing_job(
-    current_user: User = Depends(get_user_from_token),
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Create a test job that will always fail.
-    Used to test retry logic (Task 3 demo gate) and credit refund (Task 4).
-    """
-    # Task 3-2: Check rate limit
-    await check_rate_limit(None, current_user.organisation_id)
-    
-    credits_required = 10
-    
-    # Check and deduct credits (Task 4: Credit Deduction Safety)
-    credit_service = CreditService(db)
-    balance = await credit_service.get_balance(current_user.organisation_id)
-    
-    if balance < credits_required:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Insufficient credits. Balance: {balance}, Required: {credits_required}"
-        )
-    
-    # Deduct credits
-    success = await credit_service.deduct_credits(
-        org_id=current_user.organisation_id,
-        amount=credits_required,
-        job_id=None,
-        description="Test job: summarize (will fail)"
-    )
-    
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to deduct credits"
-        )
-    
-    # Create job with empty text which will cause failure
-    job_service = JobService(db)
-    job = await job_service.create_job(
-        org_id=current_user.organisation_id,
-        user_id=current_user.id,
-        job_type=JobType.SUMMARIZE,
-        input_data=json.dumps({"text": "", "credits": credits_required})  # Empty text = failure
-    )
-    
-    # Enqueue job
-    await enqueue_job("summarize", job.id)
-    
-    return {
-        "job_id": job.id,
-        "status": "pending",
-        "message": f"Test failing job created. Credits: {credits_required} deducted. Worker will retry 3 times, then refund."
-    }

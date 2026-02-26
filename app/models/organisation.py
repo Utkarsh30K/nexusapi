@@ -24,6 +24,8 @@ class Organisation(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     domain: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    webhook_url: Mapped[str] = mapped_column(String(500), nullable=True)
+    webhook_secret: Mapped[str] = mapped_column(String(255), nullable=True)
 
     # Relationships
     users = relationship(
