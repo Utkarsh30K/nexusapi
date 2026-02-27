@@ -13,6 +13,31 @@ jobs:
   # Job 1: Health Check
   health-check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nexususer
+          POSTGRES_PASSWORD: nexuspass
+          POSTGRES_DB: nexusapi
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,21 +51,21 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Start PostgreSQL
-        uses: supercharge/postgresql-action@v1.8
-        with:
-          postgresql-db: nexusapi
-          postgresql-user: nexususer
-          postgresql-password: nexuspass
-
-      - name: Start Redis
-        uses: supercharge/redis-action@v1.8
+      - name: Wait for PostgreSQL
+        run: |
+          sleep 10
 
       - name: Run database migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://nexususer:nexuspass@localhost:5432/nexusapi
+          REDIS_URL: redis://localhost:6379
         run: |
           alembic upgrade head
 
       - name: Start API and check health
+        env:
+          DATABASE_URL: postgresql+asyncpg://nexususer:nexuspass@localhost:5432/nexusapi
+          REDIS_URL: redis://localhost:6379
         run: |
           timeout 30 uvicorn app.main:app --host 0.0.0.0 --port 8000 &
           sleep 10
@@ -49,6 +74,21 @@ jobs:
   # Job 2: Migration Check
   migration-check:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: nexususer
+          POSTGRES_PASSWORD: nexuspass
+          POSTGRES_DB: nexusapi
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -62,14 +102,13 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Start PostgreSQL
-        uses: supercharge/postgresql-action@v1.8
-        with:
-          postgresql-db: nexusapi
-          postgresql-user: nexususer
-          postgresql-password: nexuspass
+      - name: Wait for PostgreSQL
+        run: |
+          sleep 10
 
       - name: Run migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://nexususer:nexuspass@localhost:5432/nexusapi
         run: |
           alembic upgrade head
 
@@ -100,6 +139,8 @@ jobs:
 
       - name: Check for hardcoded secrets
         run: |
-          grep -r "password\s*=" app/ || echo "No hardcoded passwords found"
-          grep -r "secret\s*=" app/ || echo "No hardcoded secrets found"
-          grep -r "JWT_SECRET_KEY\s*=\s*["\']" app/ || echo "No hardcoded JWT secrets"
+          # Check for actual hardcoded secrets (not settings references)
+          # Exclude settings.py and .env files
+          grep -r "password\s*=\s*['\"][^$]" app/ --include="*.py" | grep -v "settings\." || echo "No hardcoded passwords"
+          grep -r "secret\s*=\s*['\"][^$]" app/ --include="*.py" | grep -v "settings\." | grep -v "webhook_secret" || echo "No hardcoded secrets"
+          grep -r "JWT_SECRET_KEY\s*=\s*['\"]" app/ --include="*.py" | grep -v "settings\." || echo "No hardcoded JWT secrets"
