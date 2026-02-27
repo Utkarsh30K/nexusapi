@@ -16,30 +16,30 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      
+          python-version: "3.12"
+
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-      
+
       - name: Start PostgreSQL
         uses: supercharge/postgresql-action@v1.8
         with:
           postgresql-db: nexusapi
           postgresql-user: nexususer
           postgresql-password: nexuspass
-      
+
       - name: Start Redis
         uses: supercharge/redis-action@v1.8
-      
+
       - name: Run database migrations
         run: |
           alembic upgrade head
-      
+
       - name: Start API and check health
         run: |
           timeout 30 uvicorn app.main:app --host 0.0.0.0 --port 8000 &
@@ -52,27 +52,27 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      
+          python-version: "3.12"
+
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
-      
+
       - name: Start PostgreSQL
         uses: supercharge/postgresql-action@v1.8
         with:
           postgresql-db: nexusapi
           postgresql-user: nexususer
           postgresql-password: nexuspass
-      
+
       - name: Run migrations
         run: |
           alembic upgrade head
-      
+
       - name: Verify migrations work
         run: |
           alembic current
@@ -84,20 +84,20 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      
+          python-version: "3.12"
+
       - name: Install bandit
         run: |
           pip install bandit
-      
+
       - name: Run bandit security scan
         run: |
           bandit -r app/ -f json -o bandit-report.json || true
-      
+
       - name: Check for hardcoded secrets
         run: |
           grep -r "password\s*=" app/ || echo "No hardcoded passwords found"
