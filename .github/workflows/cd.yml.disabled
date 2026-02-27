@@ -7,16 +7,16 @@ on:
   push:
     branches: [main, master]
     paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.gitignore'
+      - "**.md"
+      - "docs/**"
+      - ".gitignore"
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     permissions:
-      contents: 'read'
-      id-token: 'write'  # Required for Workload Identity
+      contents: "read"
+      id-token: "write" # Required for Workload Identity
 
     steps:
       - name: Checkout code
@@ -25,19 +25,19 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Install Google Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
-          version: '>= 420.0.0'
+          version: ">= 420.0.0"
 
       # Authenticate to Google Cloud using Workload Identity
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: '${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}'
-          service_account: '${{ secrets.GCP_SERVICE_ACCOUNT }}'
+          workload_identity_provider: "${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}"
+          service_account: "${{ secrets.GCP_SERVICE_ACCOUNT }}"
 
       # Set project and get secrets from Secret Manager
       - name: Configure GCP project
@@ -49,12 +49,12 @@ jobs:
           # Create .env file from secrets (for local testing only)
           # In production, secrets are injected directly into Cloud Run
           echo "Fetching secrets from Secret Manager..."
-          
+
           # Example: Get secrets (in production, inject directly into container)
           # DATABASE_URL from Secret Manager
           # REDIS_URL from Secret Manager
           # JWT_SECRET_KEY from Secret Manager
-          
+
           echo "Secrets configured for Cloud Run"
 
       # Build and push Docker image to Artifact Registry
