@@ -25,8 +25,14 @@ router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 # Pydantic models for request/response
 class CreateJobRequest(BaseModel):
     """Request model for creating a job."""
-    text: str
+    text: str = ""
     job_type: str = "summarize"  # summarize or analyze
+
+
+class CreateJobRequestV2(BaseModel):
+    """Request model for creating a job (new API)."""
+    job_type: str
+    input_data: dict = {}
 
 
 class JobResponse(BaseModel):
@@ -80,6 +86,95 @@ async def get_user_from_token(
             detail="User not found"
         )
     return user
+
+
+@router.post("", response_model=dict)
+async def create_job_v2(
+    request: CreateJobRequestV2,
+    current_user: User = Depends(get_user_from_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Create a new job (new API).
+    
+    Accepts job_type (SUMMARIZE/ANALYZE) and input_data dict.
+    Returns immediately with job_id.
+    """
+    # Check rate limit
+    await check_rate_limit(None, current_user.organisation_id)
+    
+    # Normalize job_type
+    job_type_str = request.job_type.upper()
+    
+    # Map to enum
+    if job_type_str == "SUMMARIZE":
+        job_type_enum = JobType.SUMMARIZE
+        credits_required = 10
+    elif job_type_str == "ANALYZE":
+        job_type_enum = JobType.ANALYZE
+        credits_required = 25
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid job_type: {request.job_type}. Use SUMMARIZE or ANALYZE."
+        )
+    
+    # Check and deduct credits
+    credit_service = CreditService(db)
+    balance = await credit_service.get_balance(current_user.organisation_id)
+    
+    if balance < credits_required:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=f"Insufficient credits. Balance: {balance}, Required: {credits_required}"
+        )
+    
+    # Deduct credits
+    success = await credit_service.deduct_credits(
+        org_id=current_user.organisation_id,
+        amount=credits_required,
+        job_id=None,
+        description=f"Job: {job_type_str}"
+    )
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to deduct credits"
+        )
+    
+    # Prepare input data
+    input_json = json.dumps({
+        **request.input_data,
+        "credits": credits_required
+    })
+    
+    # Create job in database
+    job_service = JobService(db)
+    job = await job_service.create_job(
+        org_id=current_user.organisation_id,
+        user_id=current_user.id,
+        job_type=job_type_enum,
+        input_data=input_json
+    )
+    
+    # Enqueue job for background processing
+    try:
+        await enqueue_job(job_type_str.lower(), job.id)
+    except Exception as e:
+        print(f"Failed to enqueue job: {e}")
+    
+    return {
+        "id": job.id,
+        "status": job.status.value if isinstance(job.status, JobStatus) else job.status,
+        "job_type": job_type_str,
+        "input_data": request.input_data,
+        "result": None,
+        "error": None,
+        "credits_deducted": credits_required,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+        "message": f"Job created successfully. Credits deducted: {credits_required}"
+    }
 
 
 @router.post("/summarize", response_model=dict)
@@ -211,7 +306,7 @@ async def create_analyze_job(
     }
 
 
-@router.get("/{job_id}", response_model=JobResponse)
+@router.get("/{job_id}", response_model=dict)
 async def get_job(
     job_id: str,
     current_user: User = Depends(get_user_from_token),
@@ -232,7 +327,17 @@ async def get_job(
             detail="Job not found"
         )
     
-    return job_to_response(job)
+    # Return in format expected by frontend
+    return {
+        "id": job.id,
+        "status": job.status.value if isinstance(job.status, JobStatus) else job.status,
+        "job_type": job.job_type.value if isinstance(job.job_type, JobType) else job.job_type,
+        "input_data": json.loads(job.input_data) if job.input_data else {},
+        "result": job.output_data,
+        "error": job.error_message,
+        "credits_deducted": json.loads(job.input_data).get("credits", 0) if job.input_data else 0,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+    }
 
 
 @router.get("/", response_model=list[JobResponse])

@@ -24,11 +24,36 @@ MAX_RETRIES = 3
 
 def generate_webhook_signature(payload: str, secret: str) -> str:
     """Generate HMAC-SHA256 signature for webhook payload."""
+    if not secret:
+        return ""
     return hmac.new(
         secret.encode(),
         payload.encode(),
         hashlib.sha256
     ).hexdigest()
+
+
+def verify_webhook_signature(payload: str, signature: str, secret: str) -> bool:
+    """
+    Verify HMAC-SHA256 signature from incoming webhook.
+    
+    This prevents attackers from sending fake webhook events.
+    
+    Args:
+        payload: Raw request body (string)
+        signature: Signature from X-Webhook-Signature header
+        secret: Organisation's webhook secret
+        
+    Returns:
+        True if signature is valid, False otherwise
+    """
+    if not signature or not secret:
+        return False
+    
+    expected_signature = generate_webhook_signature(payload, secret)
+    
+    # Use constant-time comparison to prevent timing attacks
+    return hmac.compare_digest(expected_signature, signature)
 
 
 async def send_webhook(

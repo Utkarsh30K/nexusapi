@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     # Frontend
     FRONTEND_URL: str = "http://localhost:3000"
 
+    # Observability
+    SENTRY_DSN: Optional[str] = None
+    ENVIRONMENT: str = "development"
+
 
 # Global settings instance
 settings = Settings()

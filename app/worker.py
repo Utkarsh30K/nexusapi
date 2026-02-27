@@ -274,10 +274,11 @@ async def main():
 
 class WorkerSettings:
     """Settings for ARQ worker - use with 'arq app.worker.WorkerSettings'"""
-    redis_settings = RedisSettings(host="localhost", port=6379)
+    redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
     job_timeout = 300
     max_tries = 3
     functions = ARQ_FUNCTIONS
+    retry_delays = (0, 5, 10)  # Immediate, 5s, 10s
 
 
 if __name__ == "__main__":

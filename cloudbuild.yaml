@@ -1,0 +1,41 @@
+# Google Cloud Build configuration
+# Used by CD pipeline to build and deploy
+
+steps:
+  # Step 1: Build Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build', 
+      '-t', 'us-central1-docker.pkg.dev/$PROJECT_ID/nexusapi/nexusapi:$COMMIT_SHA', 
+      '.'
+    ]
+
+  # Step 2: Push to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'push', 
+      'us-central1-docker.pkg.dev/$PROJECT_ID/nexusapi/nexusapi:$COMMIT_SHA'
+    ]
+
+  # Step 3: Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'nexusapi'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/$PROJECT_ID/nexusapi/nexusapi:$COMMIT_SHA'
+      - '--platform'
+      - 'managed'
+      - '--region'
+      - 'us-central1'
+      - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'DEBUG=False,APP_NAME=NexusAPI'
+
+images:
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/nexusapi/nexusapi:$COMMIT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

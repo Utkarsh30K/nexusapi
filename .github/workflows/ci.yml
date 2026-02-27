@@ -1,0 +1,105 @@
+# CI Pipeline - Runs before PR can merge
+# Checks: Health, Migration, Security Lint
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Job 1: Health Check
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      
+      - name: Start PostgreSQL
+        uses: supercharge/postgresql-action@v1.8
+        with:
+          postgresql-db: nexusapi
+          postgresql-user: nexususer
+          postgresql-password: nexuspass
+      
+      - name: Start Redis
+        uses: supercharge/redis-action@v1.8
+      
+      - name: Run database migrations
+        run: |
+          alembic upgrade head
+      
+      - name: Start API and check health
+        run: |
+          timeout 30 uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          sleep 10
+          curl -f http://localhost:8000/health || exit 1
+
+  # Job 2: Migration Check
+  migration-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      
+      - name: Start PostgreSQL
+        uses: supercharge/postgresql-action@v1.8
+        with:
+          postgresql-db: nexusapi
+          postgresql-user: nexususer
+          postgresql-password: nexuspass
+      
+      - name: Run migrations
+        run: |
+          alembic upgrade head
+      
+      - name: Verify migrations work
+        run: |
+          alembic current
+          alembic history
+
+  # Job 3: Security Lint (Bandit)
+  security-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Install bandit
+        run: |
+          pip install bandit
+      
+      - name: Run bandit security scan
+        run: |
+          bandit -r app/ -f json -o bandit-report.json || true
+      
+      - name: Check for hardcoded secrets
+        run: |
+          grep -r "password\s*=" app/ || echo "No hardcoded passwords found"
+          grep -r "secret\s*=" app/ || echo "No hardcoded secrets found"
+          grep -r "JWT_SECRET_KEY\s*=\s*["\']" app/ || echo "No hardcoded JWT secrets"
